@@ -1,456 +1,355 @@
-# SPEC — JMS FlClash Subscription Bridge Final Repair
+# SPEC — JMS FlClash Subscription Bridge Real-Upstream Verification
 
 ## Objective
 
-对当前 `JMS FlClash Subscription Bridge` 做最后一轮质量收口。
+完成 `JMS FlClash Subscription Bridge` 当前缺失的真实 JMS 验证，并修正现有验收记录。
 
-本轮只修复已经确认的问题，并补齐部署前验证。
+本轮不修改业务功能，不重构代码，不增加新能力。
 
-不要重构现有架构，不要扩展功能范围。
+当前实现已经完成：
 
-完成后：
-
-- 所有自动化测试通过
-- TypeScript typecheck 通过
-- Wrangler dry-run 通过
-- 使用真实 JMS upstream 完成 smoke verification
-- 更新 README，使文档与实际实现一致
-- 本地 commit
-- 等待人工 review
-
----
-
-## 1. Fix `/status` Method Contract
-
-`/status` 只允许：
-
-```http
-GET /status
-```
-
-以下请求不得进入 status handler，也不得访问 JMS upstream：
-- POST
-- PUT
-- PATCH
-- DELETE
-- HEAD
-
-推荐返回：
-```http
-405 Method Not Allowed
-Allow: GET
-Content-Type: application/json
-
-{
-  "error": "method_not_allowed"
-}
-```
-
-补充自动化测试，至少验证：
-- `GET /status` → 正常
-- `POST /status` → 405
-- `HEAD /status` → 405
-
-并验证不支持的方法不会触发 upstream fetch。
-
----
-
-## 2. Review `/clash` Method Contract
-
-保持当前：
-- `GET /clash`
-- `HEAD /clash`
-
-语义。
-
-**GET：**
-- 返回 JMS YAML body
-- 返回正常 response headers
-
-**HEAD：**
-- body 为空
-- 返回与 GET 对应的关键 headers
-
-其他方法不得访问 JMS upstream。
-
-如当前行为不统一，将：
-- POST
-- PUT
-- PATCH
-- DELETE
-
-统一返回：
-```http
-405 Method Not Allowed
-Allow: GET, HEAD
-Content-Type: application/json
-
-{
-  "error": "method_not_allowed"
-}
-```
-
-不要为了这一项重写现有 routing 结构。
-
----
-
-## 3. Correct README Test Description
-
-README 中删除：
-- `100+ tests`
-
-不要改成固定的具体测试数量。
-
-使用不会随着测试增减而失真的描述，例如：
-`Comprehensive automated test coverage`
-
-并简单说明测试覆盖：
-- authentication
-- routing
-- bandwidth parsing
-- bandwidth normalization
-- GET / HEAD behavior
-- upstream failures
+- `/clash` GET / HEAD
+- `/status` GET
+- `/healthz`
+- `subscription-userinfo`
+- JMS 流量换算
 - graceful degradation
+- authentication
+- method guard
+- automated tests
+- typecheck
+- Wrangler dry-run
+- README
+
+本轮唯一目标是证明：
+
+```text
+真实 JMS Subscription
+        +
+真实 JMS Bandwidth Counter
+        ↓
+当前 Worker 实现
+        ↓
+真实有效 Mihomo YAML
+        +
+真实 subscription-userinfo
+```
+
+并将项目中的验证记录更新为实际执行结果。
+
+---
+
+## 1. Do Not Change Product Behavior
+
+除非真实验证暴露出明确 bug，否则不要修改：
+- routing
+- authentication
+- bandwidth normalization
 - response headers
+- error handling
+- YAML pass-through
+- endpoint structure
 
-README 中的测试描述必须与真实 test suite 一致。
+不要趁本轮做：
+- refactor
+- cleanup
+- dependency upgrade
+- new feature
+- new endpoint
+- cache
+- multi-account support
+- UI
+- deployment redesign
 
----
-
-## 4. Correct YAML Pass-through Description
-
-README 中删除：
-- `Byte-for-Byte Fidelity`
-
-以及任何：
-- `byte-identical`
-- `binary-identical`
-- `byte-for-byte`
-
-之类的表述。
-
-当前实现通过：
-`response.text()` → `string` → `new Response()`
-返回 YAML，因此应描述为：
-`Unmodified YAML Pass-through`
-
-正文说明：
-> The worker does not parse, rewrite, rename, or inject configuration into the upstream JMS Mihomo YAML.
-> 
-> The upstream YAML text content is returned unchanged during normal operation.
-
-不要修改代码去追求 binary byte-for-byte passthrough。
+如果所有真实验证通过，本轮主要改动应只有验证记录。
 
 ---
 
-## 5. README Deployment Flow
+## 2. Prepare Real Local Credentials
 
-检查 README，确保一个新用户仅根据 README 就能完成整个部署流程。
+使用本地：
+`.dev.vars`
 
-完整流程应包括：
-1. `npm install`
-2. 创建本地配置：
-   `cp .dev.vars.example .dev.vars`
-3. 本地运行：
-   `npm run dev`
-4. 测试：
-   `npm test`
-   `npm run typecheck`
-5. Cloudflare Secrets：
-   `npx wrangler secret put JMS_SUB_URL`
-   `npx wrangler secret put JMS_BW_URL`
-   `npx wrangler secret put ACCESS_TOKEN`
-6. 部署：
-   `npm run deploy`
-7. 最终 FlClash URL：
-   `https://<worker>.workers.dev/clash?token=<ACCESS_TOKEN>`
-
-不要要求自定义域名。
-`workers.dev` 必须可以直接使用。
-
----
-
-## 6. README Endpoint Documentation
-
-README 应准确记录以下接口。
-
-### `/clash`
-- `GET  /clash?token=...`
-- `HEAD /clash?token=...`
-
-成功响应至少包含：
-```http
-Content-Type: text/yaml; charset=utf-8
-subscription-userinfo: upload=0; download=<used>; total=<total>; expire=0
-profile-title: Just My Socks
-profile-update-interval: 6
-X-JMS-Bandwidth-Status: ok
-```
-
-Bandwidth API 不可用时：
-- YAML 仍正常返回
-- `subscription-userinfo` 不返回
-- `X-JMS-Bandwidth-Status: unavailable`
-
-### `/status`
-- `GET /status?token=...`
-
-返回：
-```json
-{
-  "used_bytes": 0,
-  "total_bytes": 0,
-  "remaining_bytes": 0,
-  "used_percent": 0,
-  "reset_day": 1
-}
-```
-
-说明这里返回的是 JMS Bandwidth Counter 状态。
-
-### `/healthz`
-- `GET /healthz`
-
-无需认证。
-不得访问任何 JMS upstream。
-
----
-
-## 7. Review Security Boundaries
-
-确认以下信息不会进入 Git：
+提供真实：
 - `JMS_SUB_URL`
 - `JMS_BW_URL`
 - `ACCESS_TOKEN`
-- 真实 service ID
-- 真实 JMS UUID
+
+其中：
+- `JMS_SUB_URL`：必须是 JMS 官网提供的真实 Mihomo / Clash.Meta Subscription URL。
+- `JMS_BW_URL`：必须是 JMS 官网 API – Bandwidth Counter 页面提供的真实 `getbwcounter.php` URL。
+
+不得把真实值写入：
+- source code
+- test files
+- README
+- issue markdown
+- completion report
+- Git commit
+- shell script tracked by Git
+
+执行前确认：
+`git status --short` 中 `.dev.vars` 不得出现为 tracked / staged 文件。
+
+---
+
+## 3. Verify .dev.vars Protection
 
 确认：
-- `.dev.vars` 仍在 `.gitignore`。
+- `git check-ignore .dev.vars` 应确认该文件被忽略。
+- `git ls-files .dev.vars` 无输出。
 
-确认：
-- `.dev.vars.example` 仅包含 placeholder。
-
-搜索整个 tracked repository，确认不存在真实凭证。
-
-同时检查 error response 和日志。
-任何 upstream failure 都不得输出完整：
-- `JMS_SUB_URL`
-- `JMS_BW_URL`
-- UUID
-- token
-
-错误信息保持类似：
-- `subscription_upstream_failed`
-- `bandwidth_upstream_failed`
-- `unauthorized`
-- `method_not_allowed`
+如果 `.dev.vars` 被 Git tracking，立即停止，不继续真实验证，先修复 secret protection。
 
 ---
 
-## 8. Preserve Graceful Degradation
+## 4. Start Worker Locally
 
-保持当前行为：
-- **Subscription OK, Bandwidth FAIL**：
-  必须继续 `200 OK` 并返回有效 YAML。
-  Header：`X-JMS-Bandwidth-Status: unavailable`。
-  不得因为 Bandwidth Counter API 故障导致 FlClash 无法更新节点。
-- **Subscription FAIL**：
-  返回 `502 Bad Gateway`。
-  不要返回失效或空 YAML。
+运行：
+`npm run dev`
 
-为这两个场景保留或补充自动化测试。
+记录实际监听地址，例如：
+`http://localhost:8787`
 
----
-
-## 9. Verify Bandwidth Validation
-
-重新检查 Bandwidth Counter parser。
-
-以下字段：
-- `monthly_bw_limit_b`
-- `bw_counter_b`
-
-必须：
-- 存在
-- number
-- finite
-- >= 0
-
-`bw_reset_day_of_month` 存在时：
-- integer
-- `1 <= value <= 31`
-
-非法 bandwidth response 不得产生 `subscription-userinfo`。
-但只要 YAML upstream 正常，仍应按 graceful degradation 返回 YAML。
+后续命令使用实际端口。
+不要把 token 直接写进 tracked 文件。
+可以临时：
+`export JMS_BRIDGE_TOKEN='实际 ACCESS_TOKEN'`
+或手动替换 shell 命令中的 token。
 
 ---
 
-## 10. Verify GB Normalization
+## 5. Verify Health Endpoint
 
-保持现有转换逻辑：
-```text
-clashBytes = Math.round(jmsBytes * 1073741824 / 1000000000)
+执行：
+```bash
+curl -i "http://localhost:8787/healthz"
 ```
 
-必须同时作用于：
-- `used`
-- `total`
+必须返回：
+- HTTP 200
+- Body：`{"status":"ok"}`
 
-测试至少保留：
-- JMS total: `500000000000` → Expected: `536870912000`
-- JMS used: `125000000000` → Expected: `134217728000`
-
-最终比例保持：25%
-
-不要改变：`expire=0`（`bw_reset_day_of_month` 不是套餐 expiration）。
+同时确认 `/healthz` 不依赖真实 JMS upstream。
+这一项只是基础启动检查，不得作为“真实 JMS smoke verification 已完成”的依据。
 
 ---
 
-## 11. Test Suite Cleanup
+## 6. Real `/status` Verification
 
-检查现有测试是否真实覆盖当前 API contract。
-至少保证以下场景有自动化测试：
-- `GET /healthz`
-- `GET /status`
-- invalid `/status` methods (POST, HEAD, etc. -> 405)
-- `GET /clash`
-- `HEAD /clash`
-- invalid `/clash` methods (POST, PUT, DELETE, etc. -> 405)
-- query token authentication
-- Bearer authentication
-- missing token
-- invalid token
-- valid bandwidth JSON
-- invalid bandwidth JSON
-- negative bandwidth
-- invalid reset day
-- decimal GB normalization
-- bandwidth upstream failure
-- subscription upstream failure
-- subscription timeout
-- bandwidth timeout
-- YAML content pass-through
-- subscription-userinfo generation
-- HEAD response body empty
+这是本轮第一个真正的 upstream 验证。
 
-测试不得请求真实 JMS，使用 mocked `fetch()`。
-不要为了增加测试数量编写重复测试。
+执行：
+```bash
+curl -i "http://localhost:8787/status?token=<ACCESS_TOKEN>"
+```
+
+必须真实访问 `JMS_BW_URL` 并返回：
+- HTTP 200
+- Content-Type: `application/json`
+
+Body 至少包含：
+```json
+{
+  "used_bytes": ...,
+  "total_bytes": ...,
+  "remaining_bytes": ...,
+  "used_percent": ...,
+  "reset_day": ...
+}
+```
+
+验证：
+- `used_bytes >= 0`
+- `total_bytes > 0`
+- `remaining_bytes >= 0`
+- `used_bytes <= total_bytes`
+- `used_percent >= 0`
+- `used_percent <= 100`
+- `reset_day >= 1`
+- `reset_day <= 31`
+
+并人工对照 JMS 官网当前 Bandwidth Counter 数据。
+允许存在显示单位换算差异，但已用比例、总量比例、reset day 必须合理一致。
+不要把实际流量数值写入 Git。
 
 ---
 
-## 12. Local Verification
+## 7. Real `/clash` GET Verification
 
-完成修改后运行：
+执行：
+```bash
+curl -sS -D /tmp/jms-bridge-headers.txt -o /tmp/jms-bridge.yaml "http://localhost:8787/clash?token=<ACCESS_TOKEN>"
+```
+
+然后检查 `cat /tmp/jms-bridge-headers.txt`，必须真实看到：
+- HTTP 200
+- `subscription-userinfo: upload=0; download=<number>; total=<number>; expire=0`
+- `X-JMS-Bandwidth-Status: ok`
+
+并检查 `head -n 30 /tmp/jms-bridge.yaml` 确认返回的是有效 JMS Mihomo YAML。
+
+---
+
+## 8. Verify YAML Pass-through
+
+单独直接获取真实 JMS subscription：
+```bash
+curl -sS -o /tmp/jms-upstream.yaml "$JMS_SUB_URL"
+```
+
+再获取 Worker 结果：
+```bash
+curl -sS -o /tmp/jms-bridge.yaml "http://localhost:8787/clash?token=<ACCESS_TOKEN>"
+```
+
+比较：
+```bash
+diff -u /tmp/jms-upstream.yaml /tmp/jms-bridge.yaml
+```
+
+正常情况下应无配置内容差异。
+项目 contract 是：Worker 不解析、不重写、不重命名、不注入 JMS YAML 配置内容，而不是 binary byte-for-byte guarantee。
+
+---
+
+## 9. Verify `subscription-userinfo`
+
+从 `/tmp/jms-bridge-headers.txt` 读取 `subscription-userinfo`，确认：
+- `upload = 0`
+- `download > 0` 或符合当前真实使用量
+- `total > 0`
+- `expire = 0`
+- `download <= total`
+
+然后根据 `/status` 返回的数据检查：
+`download / total` 与 `used_bytes / total_bytes` 比例一致。
+
+---
+
+## 10. Real `/clash` HEAD Verification
+
+执行：
+```bash
+curl -I "http://localhost:8787/clash?token=<ACCESS_TOKEN>"
+```
+
+必须返回：
+- HTTP 200
+- `subscription-userinfo`
+- `profile-title`
+- `profile-update-interval`
+- `X-JMS-Bandwidth-Status: ok`
+- HEAD response 不得返回 YAML body。
+
+---
+
+## 11. Authentication Smoke Check
+
+使用错误 token：
+```bash
+curl -i "http://localhost:8787/status?token=invalid-test-token"
+curl -i "http://localhost:8787/clash?token=invalid-test-token"
+```
+
+应均返回 `401 Unauthorized`，且认证失败时不应访问真实 JMS upstream。
+
+---
+
+## 12. Real Bandwidth Failure Test
+
+（可选）临时使用有效 `JMS_SUB_URL` 和无效 `JMS_BW_URL` 验证 Graceful Degradation（返回 200 + YAML + `X-JMS-Bandwidth-Status: unavailable`，无 `subscription-userinfo`）。
+如自动化测试已覆盖且避免不必要风险，可不做真实故障注入，此项不是 blocker。
+
+---
+
+## 13. Run Full Automated Verification Again
+
+真实 smoke verification 完成后重新运行：
 - `npm test`
 - `npm run typecheck`
 - `npx wrangler deploy --dry-run`
-- 如果存在 lint：`npm run lint`
+- 如存在 lint：`npm run lint`
 
-全部必须成功。
-记录实际结果，不要只写 "should pass"。
-
----
-
-## 13. Real JMS Smoke Verification
-
-自动化测试全部通过后，使用真实 JMS credentials 做一次本地 smoke test。
-
-真实凭证只能通过 `.dev.vars` 提供，不得写入 source code、test fixture、README、Git 或 completion report。
-
-启动：
-`npm run dev`
-
-验证：
-1. **Health**
-   `curl -i "http://localhost:<port>/healthz"`
-   预期：200 且没有 JMS upstream 请求。
-2. **Status**
-   `curl -i "http://localhost:<port>/status?token=<TOKEN>"`
-   确认真实返回 `used_bytes`、`total_bytes`、`remaining_bytes`、`used_percent`、`reset_day`，数值合理。
-3. **Clash GET**
-   `curl -sS -D /tmp/jms-headers.txt -o /tmp/jms.yaml "http://localhost:<port>/clash?token=<TOKEN>"`
-   确认 HTTP 200，Headers 中存在 `subscription-userinfo` 和 `X-JMS-Bandwidth-Status: ok`，确认 `/tmp/jms.yaml` 是有效 JMS Mihomo YAML。
-4. **Clash HEAD**
-   `curl -I "http://localhost:<port>/clash?token=<TOKEN>"`
-   确认 HTTP 200，`subscription-userinfo` 存在，body empty。
-
-Smoke test 完成后不得提交 `.dev.vars`、`/tmp/jms.yaml`、真实 headers、真实 UUID、真实 token。
+所有实际结果必须记录。
 
 ---
 
-## 14. Optional Temporary Cloudflare Verification
+## 14. Optional Temporary Cloudflare Deployment
 
-如果当前 Cloudflare 账号环境已经准备好，并且可以安全创建临时 Worker，则可以在完成上述检查后做一次临时部署验证。只有在不会影响现有生产资源的情况下执行。
-如果没有安全的临时环境，则不要为了完成本 SPEC 强行部署。本地真实 upstream smoke verification 仍然是必须完成项。
-
----
-
-## 15. FlClash Verification
-
-如果可以安全使用临时 Worker，则把 `https://<temporary-worker>.workers.dev/clash?token=<TOKEN>` 作为远程 profile 导入 FlClash 验证。
-如果本轮不进行临时 Cloudflare 部署，则在 completion report 中明确：
-`FlClash UI verification: pending production/temporary deployment`
-不得虚构已经通过。
+（可选）如果环境允许且不影响生产，可进行临时 Worker 部署验证。
+若无安全临时环境，则跳过，记录为 `not executed`。
 
 ---
 
-## 16. Scope Control
+## 15. Optional FlClash UI Verification
 
-本轮不要加入任何与最终修复无关的功能。
-不要增加：Web UI、多账户、历史流量、数据库、KV、D1、R2、Durable Objects、Docker、规则集、节点重命名、ACL4SSR、DNS 配置、订阅转换、测速、定时任务、QuanX、Loon、Surge、sing-box。
-
----
-
-## 17. Completion Criteria
-
-只有以下全部完成，本轮才算结束：
-- `/status` method contract 修复完成
-- `/clash` method contract 修复完成
-- README test 描述准确
-- README YAML pass-through 描述准确
-- README 从零部署流程完整
-- README endpoints 与实现一致
-- Security review 通过
-- Graceful degradation 保持
-- Bandwidth validation 保持
-- GB normalization 保持
-- `npm test` 通过
-- `npm run typecheck` 通过
-- `wrangler deploy --dry-run` 通过
-- 真实 JMS local smoke test 通过
-- 没有任何真实 secret 进入 Git
-- Working tree clean
+（可选）如果进行了临时部署，导入 FlClash 验证卡片展示。
+未执行则明确记录：
+`FlClash UI verification: not executed`
 
 ---
 
-## 18. Git
+## 16. Correct Existing Verification Record
 
-完成所有修改与验证后创建一个新的本地 commit。
-Commit message 可使用：
-`fix: finalize JMS bridge validation and docs`
+检查当前项目中记录 real JMS verification 的 issue / verification 文档。
+必须明确区分：
+- Local startup verification
+- Method guard verification
+- Real JMS bandwidth verification
+- Real JMS subscription verification
+- Real subscription-userinfo verification
 
-完成后确认 `git status --short` 为空。
-不要 push，不要 release，不要 tag，等待人工 review。
+只有本 SPEC 中真实 `/status`、`GET /clash`、`HEAD /clash` 执行成功后，才能把 Real JMS smoke verification 标记为 completed / resolved。
 
 ---
 
-## 19. Completion Report
+## 17. Verification Evidence
 
-最终只报告：
-- Commit SHA
-- Working tree status
-- Files changed
-- Behavior changes
-- `/status` method behavior
-- `/clash` GET/HEAD behavior
-- Security verification & Secret scan result
-- `npm test` result
-- `npm run typecheck` result
-- `wrangler deploy --dry-run` result
-- Real JMS smoke test result
-- FlClash verification result (if executed)
-- Known limitations
+验证记录可以包含命令输出和行为状态，但不包含任何真实 UUID、真实 token、完整 JMS URL、具体私人流量数值。
 
-报告中不得包含任何真实 secret，完成后停止等待人工 review。
+---
+
+## 18. Secret Cleanup
+
+验证结束后删除临时输出：
+```bash
+rm -f /tmp/jms-bridge.yaml /tmp/jms-upstream.yaml /tmp/jms-bridge-headers.txt
+```
+
+确认 `git status --short` 无敏感文件或临时文件。
+
+---
+
+## 19. Code Changes If Verification Fails
+
+如果真实验证暴露 bug，定位根因，只修复导致真实验证失败的问题，补自动化回归测试，重新运行全部验证。
+
+---
+
+## 20. Completion Criteria
+
+- 真实 `/status` 请求成功，Bandwidth Counter 正确解析
+- 真实 `GET /clash` 请求成功，Mihomo YAML 成功返回，`subscription-userinfo` 存在，`X-JMS-Bandwidth-Status = ok`
+- 真实 `HEAD /clash` 请求成功，`subscription-userinfo` 存在，body 为空
+- YAML 未被 Worker 重写
+- `npm test` 实际通过
+- `npm run typecheck` 实际通过
+- `wrangler deploy --dry-run` 实际通过
+- 真实 credentials 未进入 Git，临时文件已清理
+- 验证记录与实际执行结果一致
+
+---
+
+## 21. Git
+
+建议 commit：
+`test: verify JMS bridge against real upstream`
+
+完成后 `git status --short` 必须为空，只做本地 commit，不要 push/tag/release/deploy。
+
+---
+
+## 22. Completion Report
+
+最终报告包含 Commit SHA、Working tree status、Real /status、Real GET /clash、Real HEAD /clash、YAML pass-through、自动化测试及 dry-run 结果，不包含任何真实密钥和隐私数据。

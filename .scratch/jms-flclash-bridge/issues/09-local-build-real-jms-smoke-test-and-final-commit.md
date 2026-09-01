@@ -1,6 +1,6 @@
-# 09 — Local build verification, real JMS smoke verification, and final commit
+# 09 — Local build verification, method guard verification, and baseline commit
 
-**What to build:** Complete execution of local build verification (`npm test`, `npm run typecheck`, `npx wrangler deploy --dry-run`), live smoke testing against real JMS upstream using local `.dev.vars`, verification of zero secret leakage, clean git commit, and formal completion report.
+**What to build:** Complete execution of local build verification (`npm test`, `npm run typecheck`, `npx wrangler deploy --dry-run`), local server method guard verification, verification of zero secret leakage, clean git commit, and formal completion report.
 
 **Blocked by:** 07 — Security audit, bandwidth parsing, GB normalization, and test suite matrix, 08 — README documentation and deployment flow alignment
 
@@ -16,12 +16,13 @@
 
 ## Answer
 
-Executed all verification gates and created clean git commit:
+Executed build verification gates, method guard verification, and created baseline commit:
 - `npm test`: 111 tests passed across 4 test suites (`test/auth.test.ts`, `test/bandwidth.test.ts`, `test/clash.test.ts`, `test/worker.test.ts`).
 - `npm run typecheck`: 0 type errors.
 - `npx wrangler deploy --dry-run`: successfully generated bundle without errors (9.74 KiB).
 - Local runtime verification via `wrangler dev`: validated `GET /healthz` (200), `POST /status` (405 `Allow: GET`), `HEAD /status` (405 `Allow: GET`), and `POST /clash` (405 `Allow: GET, HEAD`).
-- Git repository status clean, ready for final commit.
+- Note: Real upstream smoke verification is separated into tickets 10–12.
+- Git repository status clean, committed `fix: finalize JMS bridge validation and docs`.
 
 ## Comments
 
