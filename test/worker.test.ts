@@ -260,16 +260,29 @@ proxies:
       expect(body).toEqual({ error: "subscription_upstream_failed" });
     });
 
-    it("returns 404 for POST /clash", async () => {
-      const request = new Request("http://localhost/clash?token=secret-token-123", {
-        method: "POST",
-      });
-      const response = await worker.fetch(request, env, dummyCtx);
+    it.each(["POST", "PUT", "PATCH", "DELETE"])(
+      "returns 405 Method Not Allowed for %s /clash with Allow: GET, HEAD",
+      async (method) => {
+        const fetchSpy = vi.fn();
+        globalThis.fetch = fetchSpy;
 
-      expect(response.status).toBe(404);
-      const body = await response.json();
-      expect(body).toEqual({ error: "not_found" });
-    });
+        const request = new Request(
+          "http://localhost/clash?token=secret-token-123",
+          {
+            method,
+          }
+        );
+        const response = await worker.fetch(request, env, dummyCtx);
+
+        expect(response.status).toBe(405);
+        expect(response.headers.get("Content-Type")).toBe("application/json");
+        expect(response.headers.get("Allow")).toBe("GET, HEAD");
+
+        const body = await response.json();
+        expect(body).toEqual({ error: "method_not_allowed" });
+        expect(fetchSpy).not.toHaveBeenCalled();
+      }
+    );
   });
 
   describe("GET /status", () => {
@@ -413,6 +426,30 @@ proxies:
       const data = await response.json();
       expect(data).toEqual({ error: "bandwidth_upstream_failed" });
     });
+
+    it.each(["POST", "HEAD", "PUT", "PATCH", "DELETE"])(
+      "returns 405 Method Not Allowed for %s /status with Allow: GET and does not fetch upstream",
+      async (method) => {
+        const fetchSpy = vi.fn();
+        globalThis.fetch = fetchSpy;
+
+        const request = new Request(
+          "http://localhost/status?token=secret-token-123",
+          {
+            method,
+          }
+        );
+        const response = await worker.fetch(request, env, dummyCtx);
+
+        expect(response.status).toBe(405);
+        expect(response.headers.get("Content-Type")).toBe("application/json");
+        expect(response.headers.get("Allow")).toBe("GET");
+
+        const data = await response.json();
+        expect(data).toEqual({ error: "method_not_allowed" });
+        expect(fetchSpy).not.toHaveBeenCalled();
+      }
+    );
   });
 
   describe("Unknown routes", () => {

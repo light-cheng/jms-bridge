@@ -22,8 +22,18 @@ export default {
       });
     }
 
-    // Status endpoint (authenticated)
+    // Status endpoint (authenticated, GET only)
     if (url.pathname === "/status") {
+      if (request.method !== "GET") {
+        return new Response(JSON.stringify({ error: "method_not_allowed" }), {
+          status: 405,
+          headers: {
+            "Content-Type": "application/json",
+            Allow: "GET",
+          },
+        });
+      }
+
       const authError = requireAuth(request, env);
       if (authError) {
         return authError;
@@ -32,10 +42,17 @@ export default {
     }
 
     // Protected /clash endpoint (authenticated, supports GET and HEAD)
-    if (
-      url.pathname === "/clash" &&
-      (request.method === "GET" || request.method === "HEAD")
-    ) {
+    if (url.pathname === "/clash") {
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        return new Response(JSON.stringify({ error: "method_not_allowed" }), {
+          status: 405,
+          headers: {
+            "Content-Type": "application/json",
+            Allow: "GET, HEAD",
+          },
+        });
+      }
+
       return handleClashRequest(request, env);
     }
 
