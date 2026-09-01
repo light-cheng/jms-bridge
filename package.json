@@ -1,0 +1,19 @@
+{
+  "name": "jms-flclash-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Worker subscription bridge for Just My Socks providing subscription-userinfo for FlClash and Mihomo",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250224.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.7",
+    "wrangler": "^3.109.2"
+  }
+}
