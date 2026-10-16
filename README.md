@@ -61,7 +61,7 @@ Follow these step-by-step instructions to deploy your bridge from scratch:
 Clone the repository and install dependencies:
 
 ```bash
-git clone https://github.com/LightDevCoder/jms-bridge.git
+git clone https://github.com/light-cheng/jms-bridge.git
 cd jms-bridge
 npm install
 ```
